@@ -37,7 +37,7 @@ contract Marketplace is AccessControl {
 
     event Cancel(uint256 dealId);
 
-    // Constructor: Needs to pass a lawyer accounts during deployment
+    // Constructor: A lawyer account is specified during deployment
     constructor(address lawyer) {
         _setupRole(LAWYER_ROLE, lawyer);
     }
@@ -75,7 +75,7 @@ contract Marketplace is AccessControl {
         require(hasRole(LAWYER_ROLE, msg.sender), "Caller is not a lawyer");
         require(deal.status == DealStatus.Active, "Deal is no longer active");
 
-        deal.status = DealStatus.Active;
+        deal.status = DealStatus.Cancelled;
 
         emit Cancel(dealId);
     }
