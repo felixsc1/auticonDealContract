@@ -34,7 +34,7 @@ contract Marketplace is AccessControl {
         uint256 dateDue;
     }
 
-    uint256 private _dealId;
+    uint256 private _randomNonce;
     mapping(uint256 => Deal) public deals;
 
     // -- Events --
@@ -67,6 +67,17 @@ contract Marketplace is AccessControl {
 
     // -- User Functions ---
 
+    function randomId() internal returns (uint256) {
+        // pseudo random number between 0 and one million.
+        _randomNonce++;
+        return
+            uint256(
+                keccak256(
+                    abi.encodePacked(block.timestamp, msg.sender, _randomNonce)
+                )
+            ) % 1000000;
+    }
+
     function createNewDeal(
         address sender,
         address receiver,
@@ -75,7 +86,7 @@ contract Marketplace is AccessControl {
         uint256 dateDue
     ) external onlyRole(LAWYER_ROLE) {
         require(isTokenAllowed(symbol), "This token is not accepted");
-        _dealId++;
+        uint256 _dealId = randomId();
 
         Deal memory deal = Deal(
             DealStatus.Open,
@@ -141,6 +152,7 @@ contract Marketplace is AccessControl {
             keccak256(abi.encodePacked(deal.symbol)) ==
             keccak256(abi.encodePacked("ETH"))
         ) {
+            // Front-end needs to handle the part of providing msg.value
             require(msg.value >= amount);
             // reimburse excess amount
             payable(msg.sender).transfer(msg.value - amount);

@@ -16,8 +16,8 @@ def test_create_new_deal(deployed_marketplace):
         sender, receiver, price, "AC", dtimestamp, {"from": lawyer})
     tx.wait(1)
 
-    # event should have been emitted and assigned an ID:
-    assert tx.events["NewDeal"]["dealId"] == 1
+    # event should have been emitted and assigned an ID (random):
+    assert tx.events["NewDeal"]["dealId"] >= 0
 
     # Non-lawyer account shouldn't be able to create deals.
     with pytest.raises(exceptions.VirtualMachineError):
@@ -39,16 +39,17 @@ def test_pay_deal(deployed_marketplace):
     tx = marketplace.createNewDeal(
         sender, receiver, price, "AC", dtimestamp, {"from": lawyer})
     tx.wait(1)
+    _dealId = tx.events["NewDeal"]["dealId"]
 
     # 1 AC = 2000$ thus we transfer 0.5 AC to the sender
     balance = Wei("0.5 ether")
     auticoin.transfer(sender, balance, {"from": admin})
     auticoin.approve(marketplace.address, balance, {"from": sender})
-    tx = marketplace.payDeal(1, {"from": sender})
+    tx = marketplace.payDeal(_dealId, {"from": sender})
     tx.wait(1)
 
     # check if the deals struct has been updated with the paid amount (6th value, see contract)
-    assert marketplace.deals(1)[6] == balance
+    assert marketplace.deals(_dealId)[6] == balance
 
 
 def test_payment_datelimit(deployed_marketplace):
@@ -61,6 +62,7 @@ def test_payment_datelimit(deployed_marketplace):
     tx = marketplace.createNewDeal(
         sender, receiver, price, "AC", dtimestamp, {"from": lawyer})
     tx.wait(1)
+    _dealId = tx.events["NewDeal"]["dealId"]
 
     balance = Wei("0.5 ether")
     auticoin.transfer(sender, balance, {"from": admin})
@@ -69,7 +71,7 @@ def test_payment_datelimit(deployed_marketplace):
     # check if payment is declined when deadline has passed
     chain.sleep(365*24*60*60)
     with pytest.raises(exceptions.VirtualMachineError):
-        marketplace.payDeal(1, {"from": sender})
+        marketplace.payDeal(_dealId, {"from": sender})
 
 
 def test_finalize_deal(deployed_marketplace):
@@ -77,16 +79,17 @@ def test_finalize_deal(deployed_marketplace):
     marketplace, auticoin = deployed_marketplace
     admin, lawyer, sender, receiver = accounts[0:4]
     price = Wei("1000 ether")
-    dtimestamp = datetime(2022, 12, 12, 20).timestamp()
+    dtimestamp = datetime(2024, 12, 12, 20).timestamp()
     tx = marketplace.createNewDeal(
         sender, receiver, price, "AC", dtimestamp, {"from": lawyer})
+    _dealId = tx.events["NewDeal"]["dealId"]
     balance = Wei("0.5 ether")
     auticoin.transfer(sender, balance, {"from": admin})
     auticoin.approve(marketplace.address, balance, {"from": sender})
-    marketplace.payDeal(1, {"from": sender})
+    marketplace.payDeal(_dealId, {"from": sender})
 
     # Now lawyer account should be able to call the finalize function
-    assert marketplace.finalizeDeal(1, {"from": lawyer})
+    assert marketplace.finalizeDeal(_dealId, {"from": lawyer})
     # receiver should have received the payment from the contract
     assert auticoin.balanceOf(receiver) == balance
 
@@ -98,10 +101,11 @@ def test_pay_and_cancel_with_ETH(deployed_marketplace):
     marketplace, auticoin = deployed_marketplace
     admin, lawyer, sender, receiver = accounts[0:4]
     price = Wei("100 ether")
-    dtimestamp = datetime(2022, 12, 12, 20).timestamp()
+    dtimestamp = datetime(2024, 12, 12, 20).timestamp()
     tx = marketplace.createNewDeal(
         sender, receiver, price, "ETH", dtimestamp, {"from": lawyer})
-    marketplace.payDeal(1, {"from": sender, "value": price})
+    _dealId = tx.events["NewDeal"]["dealId"]
+    marketplace.payDeal(_dealId, {"from": sender, "value": price})
 
 
 # def test_grant_role(deployed_marketplace):
