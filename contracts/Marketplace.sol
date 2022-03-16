@@ -17,7 +17,7 @@ contract Marketplace is AccessControl {
     mapping(string => Token) public tokens;
 
     enum DealStatus {
-        Active,
+        Open,
         Paid,
         Completed,
         Cancelled
@@ -50,7 +50,12 @@ contract Marketplace is AccessControl {
 
     event Cancel(uint256 dealId);
 
-    event Payment(uint256 dealId, string symbol, uint256 amount);
+    event Payment(
+        address sender,
+        uint256 dealId,
+        string symbol,
+        uint256 amount
+    );
 
     event Complete(uint256 dealId);
 
@@ -68,13 +73,12 @@ contract Marketplace is AccessControl {
         uint256 priceUSD,
         string memory symbol,
         uint256 dateDue
-    ) external {
-        require(hasRole(LAWYER_ROLE, msg.sender), "Caller is not a lawyer");
+    ) external onlyRole(LAWYER_ROLE) {
         require(isTokenAllowed(symbol), "This token is not accepted");
         _dealId++;
 
         Deal memory deal = Deal(
-            DealStatus.Active,
+            DealStatus.Open,
             sender,
             receiver,
             _dealId,
@@ -92,41 +96,68 @@ contract Marketplace is AccessControl {
         return deals[dealId];
     }
 
-    function cancelDeal(uint256 dealId) public {
+    function cancelDeal(uint256 dealId) public onlyRole(LAWYER_ROLE) {
         Deal storage deal = deals[dealId];
-        require(hasRole(LAWYER_ROLE, msg.sender), "Caller is not a lawyer");
-        require(deal.status == DealStatus.Active, "Deal is no longer active");
+
+        if (deal.status == DealStatus.Open) {
+            deal.status = DealStatus.Cancelled;
+        } else if (deal.status == DealStatus.Paid) {
+            // refund sender (for the cases of ETH or ERC20 payment)
+            if (
+                keccak256(abi.encodePacked(deal.symbol)) ==
+                keccak256(abi.encodePacked("ETH"))
+            ) {
+                payable(deal.sender).transfer(deal.paidTokens);
+            } else {
+                IERC20(tokens[deal.symbol].token).transferFrom(
+                    address(this),
+                    deal.sender,
+                    deal.paidTokens
+                );
+            }
+        }
 
         deal.status = DealStatus.Cancelled;
-
-        // todo: implement option to cancel deal that is already paid.
-
         emit Cancel(dealId);
     }
 
-    function payDeal(uint256 dealId) public {
+    function payDeal(uint256 dealId) public payable {
         Deal storage deal = deals[dealId];
-        require(deal.status == DealStatus.Active, "Deal is no longer active");
-        // in case user enters the wrong ID, he shouldnt accidentally pay "wrong" deal.
+        require(deal.status == DealStatus.Open, "Deal is no longer active");
+        require(
+            block.timestamp <= deal.dateDue,
+            "Time window for payment has passed"
+        );
+        // in case user enters the wrong ID, he shouldn't accidentally pay "wrong" deal.
         require(
             msg.sender == deal.sender,
             "Must be paid by the buyer of the deal"
         );
 
         uint256 amount = USDtoToken(deal.symbol, deal.priceUSD);
-        IERC20(tokens[deal.symbol].token).transferFrom(
-            msg.sender,
-            address(this),
-            amount
-        );
+
+        // in case of payment with ETH, web3.js needs to set appropriate msg.value
+        if (
+            keccak256(abi.encodePacked(deal.symbol)) ==
+            keccak256(abi.encodePacked("ETH"))
+        ) {
+            require(msg.value >= amount);
+            // reimburse excess amount
+            payable(msg.sender).transfer(msg.value - amount);
+        } else {
+            IERC20(tokens[deal.symbol].token).transferFrom(
+                msg.sender,
+                address(this),
+                amount
+            );
+        }
 
         deal.status = DealStatus.Paid;
         deal.paidTokens = amount; // keeping track of tokens at time of payment.
-        emit Payment(dealId, deal.symbol, amount);
+        emit Payment(deal.sender, dealId, deal.symbol, amount);
     }
 
-    function finalizeDeal(uint256 dealId) public {
-        require(hasRole(LAWYER_ROLE, msg.sender), "Caller is not a lawyer");
+    function finalizeDeal(uint256 dealId) public onlyRole(LAWYER_ROLE) {
         Deal storage deal = deals[dealId];
         // prevent accidental finalization of unpaid deals
         require(
@@ -150,8 +181,7 @@ contract Marketplace is AccessControl {
         string memory symbol,
         address token,
         address pricefeed
-    ) public {
-        require(hasRole(ADMIN_ROLE, msg.sender), "Caller is not admin");
+    ) public onlyRole(ADMIN_ROLE) {
         tokens[symbol] = Token(token, pricefeed);
     }
 
@@ -173,4 +203,7 @@ contract Marketplace is AccessControl {
         uint256 decimals = uint256(priceFeed.decimals()); // needed in a calculation below
         return ((usdamount / uint256(price)) * (10**decimals));
     }
+
+    // fallback function to make contract able to receive ETH:
+    receive() external payable {}
 }

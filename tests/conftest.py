@@ -15,4 +15,7 @@ def deployed_marketplace():
     marketplace = Marketplace.deploy(lawyer, {"from": deployer})
     marketplace.addToken("AC", auticoin.address,
                          price_feed.address, {"from": deployer})
+    # ETH doesn't need a token address, we just add  some address (but not zero address)
+    marketplace.addToken("ETH", '0x0000000000000000000000000000000000000001',
+                         price_feed.address, {"from": deployer})
     return marketplace, auticoin
